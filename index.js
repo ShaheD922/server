@@ -93,7 +93,7 @@ async function run() {
         console.error(error);
         res.status(500).send({ error: "Failed to delete issue" });
       }
-    });
+    });//
 
     app.post("/mycontribution", async (req, res) => {
       const contribution = req.body;
