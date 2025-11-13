@@ -116,7 +116,6 @@ async function run() {
       }
     });
 
-
     app.get("/mycontribution/:issueId", async (req, res) => {
       const issueId = req.params.issueId;
       const contributions = await contributionCollection.find({ issueId }).toArray();
