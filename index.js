@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
@@ -21,7 +20,25 @@ async function run() {
 
     console.log("MongoDB connected!");
 
-    // All issues
+
+    app.get("/stats", async (req, res) => {
+      try {
+        const totalUsers = await contributionCollection.distinct("email");
+        const resolvedCount = await issueCollection.countDocuments({ status: "ended" });
+        const pendingCount = await issueCollection.countDocuments({ status: "ongoing" });
+
+        res.send({
+          users: totalUsers.length,
+          resolved: resolvedCount,
+          pending: pendingCount,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to fetch stats" });
+      }
+    });
+
+   
     app.get("/models", async (req, res) => {
       const issues = await issueCollection.find().sort({ date: -1 }).toArray();
       res.send(issues);
@@ -78,7 +95,6 @@ async function run() {
       }
     });
 
-    // Add contribution
     app.post("/mycontribution", async (req, res) => {
       const contribution = req.body;
       if (!contribution.email) return res.status(400).send({ error: "Email required" });
@@ -86,18 +102,27 @@ async function run() {
       contribution.issueId = contribution.issueId.toString();
       contribution.date = new Date();
 
-      const result = await contributionCollection.insertOne(contribution);
-      res.send(result);
+      contribution.name = contribution.contributorName || "Anonymous";
+
+      
+      contribution.image = contribution.image || "";
+
+      try {
+        const result = await contributionCollection.insertOne(contribution);
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to add contribution" });
+      }
     });
 
-    // Get contributions by issueId
+
     app.get("/mycontribution/:issueId", async (req, res) => {
       const issueId = req.params.issueId;
       const contributions = await contributionCollection.find({ issueId }).toArray();
       res.send(contributions);
     });
 
-    // Get contributions by logged-in user email
     app.get("/mycontribution", async (req, res) => {
       const email = req.query.email;
       if (!email) return res.status(400).send({ error: "Email query missing" });
@@ -114,7 +139,7 @@ async function run() {
       }
     });
 
-    // Get issues created by logged-in user
+
     app.get("/myissues", async (req, res) => {
       const email = req.query.email;
       if (!email) return res.status(400).send({ error: "Email query missing" });
@@ -132,7 +157,7 @@ async function run() {
     });
 
   } catch (error) {
-    console.error(error);
+    console.error(error); 
   }
 }
 
@@ -141,3 +166,4 @@ run();
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+//
