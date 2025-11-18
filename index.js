@@ -6,9 +6,11 @@ require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
+// MongoDB 
 const client = new MongoClient(process.env.MONGO_URI);
 
 async function run() {
@@ -20,7 +22,7 @@ async function run() {
 
     console.log("MongoDB connected!");
 
-
+   
     app.get("/stats", async (req, res) => {
       try {
         const totalUsers = await contributionCollection.distinct("email");
@@ -38,13 +40,13 @@ async function run() {
       }
     });
 
-   
+    // Get all issues
     app.get("/models", async (req, res) => {
       const issues = await issueCollection.find().sort({ date: -1 }).toArray();
       res.send(issues);
     });
 
-    // Single issue
+    // Get single issue
     app.get("/models/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -93,18 +95,16 @@ async function run() {
         console.error(error);
         res.status(500).send({ error: "Failed to delete issue" });
       }
-    });//
+    });
 
+    // Add contribution
     app.post("/mycontribution", async (req, res) => {
       const contribution = req.body;
       if (!contribution.email) return res.status(400).send({ error: "Email required" });
 
       contribution.issueId = contribution.issueId.toString();
       contribution.date = new Date();
-
       contribution.name = contribution.contributorName || "Anonymous";
-
-      
       contribution.image = contribution.image || "";
 
       try {
@@ -116,12 +116,14 @@ async function run() {
       }
     });
 
+    // Get contributions by issueId
     app.get("/mycontribution/:issueId", async (req, res) => {
       const issueId = req.params.issueId;
       const contributions = await contributionCollection.find({ issueId }).toArray();
       res.send(contributions);
     });
 
+    // Get contributions by email
     app.get("/mycontribution", async (req, res) => {
       const email = req.query.email;
       if (!email) return res.status(400).send({ error: "Email query missing" });
@@ -138,7 +140,7 @@ async function run() {
       }
     });
 
-
+    // Get issues by email
     app.get("/myissues", async (req, res) => {
       const email = req.query.email;
       if (!email) return res.status(400).send({ error: "Email query missing" });
@@ -156,7 +158,7 @@ async function run() {
     });
 
   } catch (error) {
-    console.error(error); 
+    console.error(error);
   }
 }
 
@@ -165,4 +167,3 @@ run();
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
-//
