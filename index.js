@@ -7,116 +7,178 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-const serviceAccount = JSON.parse(
-  Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
-);
-
+// Firebase 
 if (!admin.apps.length) {
+  const serviceAccount = JSON.parse(
+    Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
+  );
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
 }
 
-const app = express();
-app.use(cors());
-app.use(express.json());
-let client;
-let db;
-let issueCollection;
-let contributionCollection;
+// MongoDB
+let cachedClient = null;
+let cachedDb = null;
 
-async function connectDB() {
-  if (!client) {
-    client = new MongoClient(process.env.MONGO_URI);
-    await client.connect();
-    db = client.db("community-clean-db");
-    issueCollection = db.collection("models");
-    contributionCollection = db.collection("myContribution");
-    console.log("MongoDB Connected Successfully (Vercel)");
-  }
+async function connectToDatabase() {
+  if (cachedClient && cachedDb) return { client: cachedClient, db: cachedDb };
+
+  const client = new MongoClient(process.env.MONGO_URI);
+  await client.connect();
+  const db = client.db("community-clean-db");
+
+  cachedClient = client;
+  cachedDb = db;
+  return { client, db };
 }
-await connectDB();
+
+// Routes
 app.get("/", (req, res) => {
   res.send("Server is running!");
 });
 
 app.get("/stats", async (req, res) => {
-  const totalUsers = await contributionCollection.distinct("email");
-  const resolvedCount = await issueCollection.countDocuments({ status: "ended" });
-  const pendingCount = await issueCollection.countDocuments({ status: "ongoing" });
+  try {
+    const { db } = await connectToDatabase();
+    const contributionCollection = db.collection("myContribution");
+    const issueCollection = db.collection("models");
 
-  res.send({
-    users: totalUsers.length,
-    resolved: resolvedCount,
-    pending: pendingCount,
-  });
+    const totalUsers = await contributionCollection.distinct("email");
+    const resolvedCount = await issueCollection.countDocuments({ status: "ended" });
+    const pendingCount = await issueCollection.countDocuments({ status: "ongoing" });
+
+    res.json({
+      users: totalUsers.length,
+      resolved: resolvedCount,
+      pending: pendingCount,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.get("/models", async (req, res) => {
-  const issues = await issueCollection.find().sort({ date: -1 }).toArray();
-  res.send(issues);
+  try {
+    const { db } = await connectToDatabase();
+    const issueCollection = db.collection("models");
+    const issues = await issueCollection.find().sort({ date: -1 }).toArray();
+    res.json(issues);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.get("/models/:id", async (req, res) => {
-  const id = req.params.id;
-  const issue = await issueCollection.findOne({ _id: new ObjectId(id) });
-  res.send(issue);
+  try {
+    const { db } = await connectToDatabase();
+    const issueCollection = db.collection("models");
+    const issue = await issueCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!issue) return res.status(404).json({ error: "Issue not found" });
+    res.json(issue);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.post("/models", async (req, res) => {
-  const issue = req.body;
-  issue.date = new Date();
-  issue.status = issue.status || "ongoing";
-  const result = await issueCollection.insertOne(issue);
-  res.send(result);
+  try {
+    const { db } = await connectToDatabase();
+    const issueCollection = db.collection("models");
+    const issue = { ...req.body, date: new Date(), status: req.body.status || "ongoing" };
+    const result = await issueCollection.insertOne(issue);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.put("/models/:id", async (req, res) => {
-  const id = req.params.id;
-  const updatedData = req.body;
-  const result = await issueCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: updatedData }
-  );
-  res.send(result);
+  try {
+    const { db } = await connectToDatabase();
+    const issueCollection = db.collection("models");
+    const result = await issueCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: req.body }
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.delete("/models/:id", async (req, res) => {
-  const id = req.params.id;
-  const result = await issueCollection.deleteOne({ _id: new ObjectId(id) });
-  res.send(result);
+  try {
+    const { db } = await connectToDatabase();
+    const issueCollection = db.collection("models");
+    const result = await issueCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.post("/mycontribution", async (req, res) => {
-  const contribution = req.body;
-  contribution.date = new Date();
-  const result = await contributionCollection.insertOne(contribution);
-  res.send(result);
+  try {
+    const { db } = await connectToDatabase();
+    const contributionCollection = db.collection("myContribution");
+    const contribution = { ...req.body, date: new Date() };
+    const result = await contributionCollection.insertOne(contribution);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.get("/mycontribution/:issueId", async (req, res) => {
-  const issueId = req.params.issueId;
-  const contributions = await contributionCollection.find({ issueId }).toArray();
-  res.send(contributions);
+  try {
+    const { db } = await connectToDatabase();
+    const contributionCollection = db.collection("myContribution");
+    const contributions = await contributionCollection.find({ issueId: req.params.issueId }).toArray();
+    res.json(contributions);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.get("/mycontribution", async (req, res) => {
-  const email = req.query.email;
-  const contributions = await contributionCollection
-    .find({ email })
-    .sort({ date: -1 })
-    .toArray();
-  res.send(contributions);
+  try {
+    const { db } = await connectToDatabase();
+    const contributionCollection = db.collection("myContribution");
+    const email = req.query.email;
+    if (!email) return res.status(400).json({ error: "Email query missing" });
+    const contributions = await contributionCollection.find({ email }).sort({ date: -1 }).toArray();
+    res.json(contributions);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.get("/myissues", async (req, res) => {
-  const email = req.query.email;
-  const issues = await issueCollection
-    .find({ email })
-    .sort({ date: -1 })
-    .toArray();
-  res.send(issues);
+  try {
+    const { db } = await connectToDatabase();
+    const issueCollection = db.collection("models");
+    const email = req.query.email;
+    if (!email) return res.status(400).json({ error: "Email query missing" });
+    const issues = await issueCollection.find({ email }).sort({ date: -1 }).toArray();
+    res.json(issues);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default serverless(app);
