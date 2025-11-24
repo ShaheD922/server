@@ -1,12 +1,11 @@
-
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 require("dotenv").config();
-
-
+const serverless = require("serverless-http"); 
 const admin = require("firebase-admin");
 
+// Firebase setup
 const serviceAccount = JSON.parse(
   Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
 );
@@ -14,7 +13,6 @@ const serviceAccount = JSON.parse(
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
-
 
 const app = express();
 app.use(cors());
@@ -29,8 +27,7 @@ async function run() {
     const issueCollection = db.collection("models");
     const contributionCollection = db.collection("myContribution");
 
-
-    
+    // Routes
     app.get("/stats", async (req, res) => {
       const totalUsers = await contributionCollection.distinct("email");
       const resolvedCount = await issueCollection.countDocuments({ status: "ended" });
@@ -109,17 +106,18 @@ async function run() {
       res.send(issues);
     });
 
-    console.log("Server routes initialized ✅");
+    console.log("Server routes initialized ");
   } catch (error) {
     console.error("Error connecting to MongoDB or setting up routes:", error);
   }
 }
 
 run();
+// Local 
+if (process.env.VERCEL !== "1") {
+  app.listen(process.env.PORT || 5000, () => {
+    console.log(`Server running on port ${process.env.PORT || 5000}`);
+  });
+}
 
-app.listen(process.env.PORT || 5000, () => {
-  console.log(`Server running on port ${process.env.PORT || 5000}`);
-});
-
-module.exports = app;
-//
+module.exports.handler = serverless(app);
