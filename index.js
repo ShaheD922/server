@@ -186,8 +186,8 @@ app.get("/myissues", async (req, res) => {
 });
 
 
-export const handler = serverless(app);
-
+// export const handler = serverless(app);
+export default serverless(app);
 
 if (process.env.NODE_ENV !== "production") {
   const port = process.env.PORT || 5000;
