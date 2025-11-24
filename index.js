@@ -11,7 +11,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Firebase
+
 if (!admin.apps.length) {
   const serviceAccount = JSON.parse(
     Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
@@ -31,8 +31,7 @@ async function connectToDatabase() {
     serverApi: { version: "1" },
     connectTimeoutMS: 10000,
   });
-
-  if (!cachedClient) await client.connect();
+  await client.connect();
   const db = client.db("community-clean-db");
 
   cachedClient = client;
@@ -41,10 +40,10 @@ async function connectToDatabase() {
   return { client, db };
 }
 
-// Routes
+
+
 app.get("/", (req, res) => res.send("Server is running!"));
 
-// Stats
 app.get("/stats", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
@@ -62,7 +61,7 @@ app.get("/stats", async (req, res) => {
   }
 });
 
-// Models CRUD
+//  CRUD
 app.get("/models", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
@@ -181,7 +180,9 @@ app.get("/myissues", async (req, res) => {
   }
 });
 
+
 export const handler = serverless(app);
+
 
 if (process.env.NODE_ENV !== "production") {
   const port = process.env.PORT || 5000;
