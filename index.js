@@ -3,24 +3,26 @@ import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import serverless from "serverless-http";
 import admin from "firebase-admin";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-
-if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
-  );
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+// Firebase
+if (!admin.apps.length && process.env.FIREBASE_SERVICE_KEY) {
+  try {
+    const serviceAccount = JSON.parse(
+      Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
+    );
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+  } catch (err) {
+    console.error("Firebase initialization error:", err);
+  }
 }
 
+// MongoDB 
 let cachedClient = null;
 let cachedDb = null;
 
@@ -40,8 +42,7 @@ async function connectToDatabase() {
   return { client, db };
 }
 
-
-
+// Routes
 app.get("/", (req, res) => res.send("Server is running!"));
 
 app.get("/stats", async (req, res) => {
@@ -61,7 +62,7 @@ app.get("/stats", async (req, res) => {
   }
 });
 
-//  CRUD
+//CRUD
 app.get("/models", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
@@ -182,9 +183,4 @@ app.get("/myissues", async (req, res) => {
 
 
 export const handler = serverless(app);
-
-
-if (process.env.NODE_ENV !== "production") {
-  const port = process.env.PORT || 5000;
-  app.listen(port, () => console.log(`Server running locally on http://localhost:${port}`));
-}
+//
