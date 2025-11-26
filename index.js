@@ -1,114 +1,138 @@
 import express from "express";
 import cors from "cors";
-import { MongoClient, ObjectId } from "mongodb";
-import serverless from "serverless-http";
+import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
 import admin from "firebase-admin";
+import serverless from "serverless-http";
+
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Firebase
-if (!admin.apps.length && process.env.FIREBASE_SERVICE_KEY) {
+
+if (!admin.apps.length) {
   try {
-    const serviceAccount = JSON.parse(
+    const firebaseKey = JSON.parse(
       Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
     );
+
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: admin.credential.cert(firebaseKey),
     });
   } catch (err) {
-    console.error("Firebase initialization error:", err);
+    console.error("Firebase init error:", err);
   }
 }
 
-// MongoDB 
+
 let cachedClient = null;
 let cachedDb = null;
 
 async function connectToDatabase() {
-  if (cachedClient && cachedDb) return { client: cachedClient, db: cachedDb };
+  if (cachedClient && cachedDb) return { db: cachedDb };
 
   const client = new MongoClient(process.env.MONGO_URI, {
-    serverApi: { version: "1" },
-    connectTimeoutMS: 10000,
+    serverApi: {
+      version: ServerApiVersion.v1,
+      strict: false,
+    },
   });
+
   await client.connect();
   const db = client.db("community-clean-db");
 
   cachedClient = client;
   cachedDb = db;
 
-  return { client, db };
+  return { db };
 }
 
-// Routes
-app.get("/", (req, res) => res.send("Server is running!"));
+
+const verifyToken = async (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res.status(401).send({ message: "Missing token" });
+  }
+
+  const token = authorization.split(" ")[1];
+
+  try {
+    await admin.auth().verifyIdToken(token);
+    next();
+  } catch (err) {
+    return res.status(401).send({ message: "Invalid token" });
+  }
+};
+
+
+
+app.get("/", (req, res) => {
+  res.send("Server is running fine!");
+});
 
 app.get("/stats", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const contributionCollection = db.collection("myContribution");
-    const issueCollection = db.collection("models");
+    const contributions = db.collection("myContribution");
+    const issues = db.collection("models");
 
-    const totalUsers = await contributionCollection.distinct("email");
-    const resolvedCount = await issueCollection.countDocuments({ status: "ended" });
-    const pendingCount = await issueCollection.countDocuments({ status: "ongoing" });
+    const users = await contributions.distinct("email");
+    const resolved = await issues.countDocuments({ status: "ended" });
+    const pending = await issues.countDocuments({ status: "ongoing" });
 
-    res.json({ users: totalUsers.length, resolved: resolvedCount, pending: pendingCount });
+    res.json({ users: users.length, resolved, pending });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
-//CRUD
+
 app.get("/models", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const issues = await db.collection("models").find().sort({ date: -1 }).toArray();
-    res.json(issues);
+    const data = await db.collection("models").find().sort({ date: -1 }).toArray();
+    res.json(data);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
 app.get("/models/:id", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const issue = await db.collection("models").findOne({ _id: new ObjectId(req.params.id) });
-    if (!issue) return res.status(404).json({ error: "Issue not found" });
-    res.json(issue);
+    const data = await db.collection("models").findOne({ _id: new ObjectId(req.params.id) });
+
+    if (!data) return res.status(404).json({ error: "Not found" });
+
+    res.json(data);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
 app.post("/models", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const issue = { ...req.body, date: new Date(), status: req.body.status || "ongoing" };
-    const result = await db.collection("models").insertOne(issue);
+
+    const doc = { ...req.body, date: new Date(), status: "ongoing" };
+    const result = await db.collection("models").insertOne(doc);
+
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
 app.put("/models/:id", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const result = await db.collection("models").updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: req.body }
-    );
+    const result = await db
+      .collection("models")
+      .updateOne({ _id: new ObjectId(req.params.id) }, { $set: req.body });
+
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
@@ -116,36 +140,23 @@ app.delete("/models/:id", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
     const result = await db.collection("models").deleteOne({ _id: new ObjectId(req.params.id) });
+
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
-// Contributions
+
 app.post("/mycontribution", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const contribution = { ...req.body, date: new Date() };
-    const result = await db.collection("myContribution").insertOne(contribution);
+    const doc = { ...req.body, date: new Date() };
+    const result = await db.collection("myContribution").insertOne(doc);
+
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.get("/mycontribution/:issueId", async (req, res) => {
-  try {
-    const { db } = await connectToDatabase();
-    const contributions = await db.collection("myContribution")
-      .find({ issueId: req.params.issueId })
-      .toArray();
-    res.json(contributions);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
@@ -153,34 +164,21 @@ app.get("/mycontribution", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
     const email = req.query.email;
-    if (!email) return res.status(400).json({ error: "Email query missing" });
-    const contributions = await db.collection("myContribution")
+
+    if (!email) return res.status(400).json({ error: "Missing email" });
+
+    const result = await db
+      .collection("myContribution")
       .find({ email })
       .sort({ date: -1 })
       .toArray();
-    res.json(contributions);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: "Server Error" });
   }
 });
-
-app.get("/myissues", async (req, res) => {
-  try {
-    const { db } = await connectToDatabase();
-    const email = req.query.email;
-    if (!email) return res.status(400).json({ error: "Email query missing" });
-    const issues = await db.collection("models")
-      .find({ email })
-      .sort({ date: -1 })
-      .toArray();
-    res.json(issues);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
 
 export const handler = serverless(app);
+export default app;
 //
