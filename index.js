@@ -3,6 +3,8 @@ import cors from "cors";
 import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
 import admin from "firebase-admin";
 import serverless from "serverless-http";
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -31,7 +33,7 @@ async function connectToDatabase() {
   const client = new MongoClient(process.env.MONGO_URI, {
     serverApi: { version: ServerApiVersion.v1, strict: false },
   });
-  await client.connect();
+  // await client.connect();
   const db = client.db("community-clean-db");
 
   cachedClient = client;
