@@ -10,7 +10,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-
 if (!admin.apps.length) {
   try {
     const firebaseKey = JSON.parse(
@@ -29,33 +28,27 @@ let cachedDb = null;
 
 async function connectToDatabase() {
   if (cachedClient && cachedDb) return { db: cachedDb };
-
   const client = new MongoClient(process.env.MONGO_URI, {
     serverApi: { version: ServerApiVersion.v1, strict: false },
   });
-  // await client.connect();
   const db = client.db("community-clean-db");
-
   cachedClient = client;
   cachedDb = db;
   return { db };
 }
 
-
 const verifyToken = async (req, res, next) => {
   const authorization = req.headers.authorization;
-  if (!authorization)
-    return res.status(401).json({ message: "Missing token" });
-
+  if (!authorization) return res.status(401).json({ message: "Missing token" });
   const token = authorization.split(" ")[1];
   try {
-    await admin.auth().verifyIdToken(token);
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = decoded;
     next();
   } catch (err) {
     return res.status(401).json({ message: "Invalid token" });
   }
 };
-
 
 app.get("/", (req, res) => res.send("Server is running fine!"));
 
@@ -63,8 +56,8 @@ app.get("/", (req, res) => res.send("Server is running fine!"));
 app.get("/models", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const models = await db.collection("models").find().sort({ date: -1 }).toArray();
-    res.json(models);
+    const issues = await db.collection("models").find().sort({ date: -1 }).toArray();
+    res.json(issues);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server Error" });
@@ -74,20 +67,20 @@ app.get("/models", async (req, res) => {
 app.get("/models/:id", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const model = await db.collection("models").findOne({ _id: new ObjectId(req.params.id) });
-    if (!model) return res.status(404).json({ error: "Not found" });
-    res.json(model);
+    const issue = await db.collection("models").findOne({ _id: new ObjectId(req.params.id) });
+    if (!issue) return res.status(404).json({ error: "Issue not found" });
+    res.json(issue);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server Error" });
   }
 });
 
-app.post("/models", async (req, res) => {
+app.post("/models", verifyToken, async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const doc = { ...req.body, date: new Date(), status: req.body.status || "ongoing" };
-    const result = await db.collection("models").insertOne(doc);
+    const issue = { ...req.body, email: req.user.email, date: new Date(), status: req.body.status || "ongoing" };
+    const result = await db.collection("models").insertOne(issue);
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -95,11 +88,11 @@ app.post("/models", async (req, res) => {
   }
 });
 
-app.put("/models/:id", async (req, res) => {
+app.put("/models/:id", verifyToken, async (req, res) => {
   try {
     const { db } = await connectToDatabase();
     const result = await db.collection("models").updateOne(
-      { _id: new ObjectId(req.params.id) },
+      { _id: new ObjectId(req.params.id), email: req.user.email },
       { $set: req.body }
     );
     res.json(result);
@@ -109,11 +102,23 @@ app.put("/models/:id", async (req, res) => {
   }
 });
 
-app.delete("/models/:id", async (req, res) => {
+app.delete("/models/:id", verifyToken, async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const result = await db.collection("models").deleteOne({ _id: new ObjectId(req.params.id) });
+    const result = await db.collection("models").deleteOne({ _id: new ObjectId(req.params.id), email: req.user.email });
     res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server Error" });
+  }
+});
+
+app.get("/myissues", verifyToken, async (req, res) => {
+  try {
+    const { db } = await connectToDatabase();
+    const email = req.query.email || req.user.email;
+    const issues = await db.collection("models").find({ email }).sort({ date: -1 }).toArray();
+    res.json(issues);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server Error" });
@@ -124,7 +129,7 @@ app.delete("/models/:id", async (req, res) => {
 app.post("/mycontribution", verifyToken, async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const doc = { ...req.body, date: new Date() };
+    const doc = { ...req.body, email: req.user.email, date: new Date() };
     const result = await db.collection("myContribution").insertOne(doc);
     res.json(result);
   } catch (err) {
@@ -136,8 +141,7 @@ app.post("/mycontribution", verifyToken, async (req, res) => {
 app.get("/mycontribution", verifyToken, async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const email = req.query.email;
-    if (!email) return res.status(400).json({ error: "Missing email" });
+    const email = req.query.email || req.user.email;
     const contributions = await db.collection("myContribution").find({ email }).sort({ date: -1 }).toArray();
     res.json(contributions);
   } catch (err) {
@@ -146,18 +150,16 @@ app.get("/mycontribution", verifyToken, async (req, res) => {
   }
 });
 
-app.get("/mycontribution/:id", verifyToken, async (req, res) => {
+app.get("/mycontribution/:issueId", async (req, res) => {
   try {
     const { db } = await connectToDatabase();
-    const contribution = await db.collection("myContribution").findOne({ _id: new ObjectId(req.params.id) });
-    if (!contribution) return res.status(404).json({ error: "Not found" });
-    res.json(contribution);
+    const contributions = await db.collection("myContribution").find({ issueId: req.params.issueId }).toArray();
+    res.json(contributions);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server Error" });
   }
 });
-
 
 export const handler = serverless(app);
 export default app;
