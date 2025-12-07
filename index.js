@@ -52,6 +52,27 @@ const verifyToken = async (req, res, next) => {
 
 app.get("/", (req, res) => res.send("Server is running fine!"));
 
+// ✅ Stats route
+app.get("/stats", async (req, res) => {
+  try {
+    const { db } = await connectToDatabase();
+    const contributionCollection = db.collection("myContribution");
+    const issueCollection = db.collection("models");
+
+    const totalUsers = await contributionCollection.distinct("email");
+    const resolvedCount = await issueCollection.countDocuments({ status: "ended" });
+    const pendingCount = await issueCollection.countDocuments({ status: "ongoing" });
+
+    res.json({
+      users: totalUsers.length,
+      resolved: resolvedCount,
+      pending: pendingCount,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch stats" });
+  }
+});
 
 app.get("/models", async (req, res) => {
   try {
@@ -124,7 +145,6 @@ app.get("/myissues", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Server Error" });
   }
 });
-
 
 app.post("/mycontribution", verifyToken, async (req, res) => {
   try {
